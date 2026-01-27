@@ -1,16 +1,37 @@
-# Discontinued: PyBambooHR
+# PyBambooHR
 
-Hey all! When I made this project I was working for a company that was trying to do corporate things for corporate reasons. I have been gone from that company for a long time now and I don't even have access to BambooHR anymore. I appreciate all the interest and I hope you found this useful. Hopefully someone has forked this project and will pick up the torch because I don't have time or interest in maintaining this anymore.
+**Original project discontinued by [smeggingsmegger](https://github.com/smeggingsmegger/PyBambooHR)**  
+**New version maintained by [Reed-Schimmel](https://github.com/Reed-Schimmel)**
 
-Cheers!
+---
 
-Scott
+## Important Notice
+
+The original PyBambooHR project was created and maintained by Scott Blevins (GitHub user smeggingsmegger). Scott discontinued the project as he no longer had access to BambooHR and moved on from the company that required it.
+
+This fork by Reed-Schimmel adds **SSO/Cookie authentication support for Okta users** while maintaining full backward compatibility with the original API.
+
+---
 
 [![Build Status](https://secure.travis-ci.org/smeggingsmegger/PyBambooHR.png)](https://travis-ci.org/smeggingsmegger/PyBambooHR)&nbsp;&nbsp;&nbsp;![Download Stats](https://pypip.in/download/PyBambooHR/badge.svg)
 
 This is an unofficial Python API for Bamboo HR. So far it is focusing on managing employee information but you can pretty much do anything you want with a little python.
 
 The library makes use of the [requests](http://docs.python-requests.org/en/latest/) library for Python and [HTTPretty](https://github.com/gabrielfalcao/HTTPretty) for testing. A huge thank you to both of those excellent projects.
+
+## What's New in v0.9.0
+
+- **Cookie Authentication for SSO Users** - Authenticate using browser session cookies (perfect for Okta SSO users)
+- **Interactive Cookie Refresh** - Automatic prompts when cookies expire with step-by-step Chrome extraction guide
+- **100% Backward Compatible** - All existing API key authentication code works unchanged
+- **38 New Tests** - Comprehensive test coverage for cookie authentication
+- **Better Documentation** - Detailed guides for both authentication methods
+
+## Installation
+
+```bash
+pip install git+https://github.com/Reed-Schimmel/PyBambooHR.git@master
+```
 
 ## Authentication Methods
 

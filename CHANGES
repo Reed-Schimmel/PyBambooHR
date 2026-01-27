@@ -1,5 +1,40 @@
 CHANGES
 =======
+
+Version 0.9.0 - 27 January 2025 (Maintained by Reed-Schimmel)
+
+  MAJOR NEW FEATURES:
+  
+  * **Cookie Authentication for SSO Users** - Added support for browser session cookie authentication,
+    enabling users with Okta SSO (or other SSO providers) to authenticate without API keys
+    
+  * **Multiple Cookie Input Formats** - Supports cookie strings from Chrome DevTools, Python dictionaries,
+    JSON from browser extensions, and cookie files
+    
+  * **Interactive Cookie Refresh** - Automatically prompts for fresh cookies when session expires,
+    with detailed instructions for extraction from Chrome
+    
+  * **Backward Compatible** - All existing API key authentication code continues to work unchanged
+  
+  NEW MODULES:
+  
+  * Added PyBambooHR/cookie_auth.py - Complete cookie parsing and session management
+  * Added 38 comprehensive tests in tests/test_cookie_auth.py
+  
+  IMPROVEMENTS:
+  
+  * Unified HTTP request handling via _make_request() method
+  * Added refresh_cookies() method for updating expired sessions
+  * Cookie expiration detection with automatic re-authentication flow
+  * Comprehensive documentation in README.md with Chrome cookie extraction guide
+  * Updated configuration options in config.py for cookie authentication
+  
+  MAINTENANCE:
+  
+  * Project maintainership transferred from smeggingsmegger to Reed-Schimmel
+  * All 63 tests passing (38 new cookie auth tests + 25 existing tests)
+  * Updated package metadata and classifiers
+
 Version 0.4.2 - 03 October 2014
 
   * Added row_id to row dictionary to keep track of them in case we need them.
