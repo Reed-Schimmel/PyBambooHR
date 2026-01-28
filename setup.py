@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-#coding:utf-8
+# coding:utf-8
 # Author:  smeggingsmegger
 # Purpose: setup
 # Created: 2013-10-02
@@ -39,32 +39,48 @@ def read(fname):
     except IOError:
         return "File '%s' not found.\n" % fname
 
-long_description = read('README.md')
+long_description = read("README.md")
 
-if os.path.exists('README.txt'):
-    long_description = open('README.txt').read()
+if os.path.exists("README.txt"):
+    long_description = open("README.txt").read()
 
 setup(
-    name='PyBambooHR',
-    version='0.8.1',
-    url='http://github.com/smeggingsmegger/PyBambooHR',
-    license='MIT',
-    author='Scott Blevins',
-    author_email='sblevins@gmail.com',
-    description='A Python wrapper for the Bamboo HR API',
-    long_description= long_description+'\n'+read('CHANGES'),
-    long_description_content_type='text/markdown',
-    platforms='OS Independent',
-    packages=['PyBambooHR'],
+    name="PyBambooHR",
+    version="0.9.0",
+    url="http://github.com/Reed-Schimmel/PyBambooHR",
+    license="MIT",
+    author="Reed Schimmel",
+    author_email="reed.schimmel@example.com",
+    description="A Python wrapper for the Bamboo HR API with SSO/Cookie authentication support",
+    long_description=long_description + "\n" + read("CHANGES"),
+    long_description_content_type="text/markdown",
+    platforms="OS Independent",
+    packages=["PyBambooHR"],
     include_package_data=True,
-    install_requires=['requests', 'xmltodict'],
-    keywords=['Bamboo', 'HR', 'BambooHR', 'API'],
+    install_requires=["requests", "xmltodict"],
+    keywords=[
+        "Bamboo",
+        "HR",
+        "BambooHR",
+        "API",
+        "SSO",
+        "Okta",
+        "Cookie",
+        "Authentication",
+    ],
     classifiers=[
-        "Development Status :: 3 - Alpha",
+        "Development Status :: 4 - Beta",
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
         "Programming Language :: Python :: 2.7",
+        "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3.6",
+        "Programming Language :: Python :: 3.7",
+        "Programming Language :: Python :: 3.8",
+        "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
         "Intended Audience :: Developers",
         "Topic :: Software Development :: Libraries :: Python Modules",
-    ]
+    ],
 )

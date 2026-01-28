@@ -1,9 +1,9 @@
 #!/usr/bin/env python
-#encoding:utf-8
-#author:smeggingsmegger/Scott Blevins
-#project:PyBambooHR
-#repository:http://github.com/smeggingsmegger/PyBambooHR
-#license:mit (http://opensource.org/licenses/MIT)
+# encoding:utf-8
+# author:smeggingsmegger/Scott Blevins
+# project:PyBambooHR
+# repository:http://github.com/smeggingsmegger/PyBambooHR
+# license:mit (http://opensource.org/licenses/MIT)
 
 """
 PyBambooHR.py contains a class by the same name with functions that correspond
@@ -43,23 +43,47 @@ class PyBambooHR(object):
     methods for basic CRUD operations for employees and more.
     """
 
-    def __init__(self, subdomain='', api_key='', datatype='JSON', underscore_keys=False, timeout=60, **kwargs):
+    def __init__(
+        self,
+        subdomain="",
+        api_key="",
+        datatype="JSON",
+        underscore_keys=False,
+        timeout=60,
+        auth_method="api_key",
+        cookies=None,
+        cookie_file=None,
+        **kwargs,
+    ):
         """
         Using the subdomain, __init__ initializes the base_url for our API calls.
-        This method also sets up some headers for our HTTP requests as well as our authentication (API key).
+        This method also sets up some headers for our HTTP requests as well as our authentication.
 
-        @param api_key: String containing a valid API Key created in BambooHR.
+        Supports two authentication methods:
+        1. API key authentication (default): Use api_key parameter
+        2. Cookie authentication: Use auth_method='cookies' with cookies or cookie_file parameter
+
         @param subdomain: String containing a valid company subdomain for a company in BambooHR.
-        @param datatype: String of 'JSON' or 'XML'. Sets the Accept header for return type in our HTTP requests to BambooHR.
+        @param api_key: String containing a valid API Key created in BambooHR (for api_key auth).
+        @param datatype: String of 'JSON' or 'XML'. Sets the Accept header for return type.
+        @param underscore_keys: Boolean to convert camelCase keys to snake_case.
+        @param timeout: Request timeout in seconds (default: 60).
+        @param auth_method: Authentication method - 'api_key' (default) or 'cookies'.
+        @param cookies: Browser cookies for cookie authentication (string, dict, or JSON).
+        @param cookie_file: Path to file containing cookies (for cookie authentication).
         """
-        if not api_key:
-            api_key = config.api_key
+        # Validate auth_method
+        if auth_method not in ("api_key", "cookies"):
+            raise ValueError("auth_method must be 'api_key' or 'cookies'")
 
+        self.auth_method = auth_method
+
+        # Handle subdomain
         if not subdomain:
             subdomain = config.subdomain
 
         # API Version
-        self.api_version = 'v1'
+        self.api_version = "v1"
 
         # Global headers
         self.headers = {}
@@ -71,38 +95,71 @@ class PyBambooHR(object):
         self.subdomain = subdomain
 
         # All requests will start with this url
-        self.base_url = 'https://api.bamboohr.com/api/gateway.php/{0}/{1}/'.format(self.subdomain, self.api_version)
+        self.base_url = "https://api.bamboohr.com/api/gateway.php/{0}/{1}/".format(
+            self.subdomain, self.api_version
+        )
 
         # JSON or XML
         self.datatype = datatype
-
-        # You must create an API key through the BambooHR interface
-        self.api_key = api_key
 
         # Some people will want to use underscore keys for employee data...
         self.underscore_keys = underscore_keys
 
         # Ask BambooHR for information that is scheduled in the future
-        self.only_current = kwargs.get('only_current', False)
+        self.only_current = kwargs.get("only_current", False)
+
+        # Initialize authentication based on method
+        if auth_method == "cookies":
+            from .cookie_auth import parse_cookies, create_session_from_cookies
+
+            # Load cookies from file if specified
+            if cookie_file:
+                try:
+                    with open(cookie_file, "r") as f:
+                        cookies = f.read()
+                except IOError as e:
+                    raise ValueError("Could not read cookie file: {}".format(e))
+
+            # Validate cookies provided
+            if not cookies:
+                raise ValueError(
+                    "auth_method='cookies' requires either 'cookies' parameter "
+                    "or 'cookie_file' parameter"
+                )
+
+            # Parse and create session
+            try:
+                parsed_cookies = parse_cookies(cookies)
+                self.session = create_session_from_cookies(parsed_cookies, subdomain)
+                self.api_key = None  # Not used with cookie auth
+            except Exception as e:
+                raise ValueError("Failed to parse cookies: {}".format(e))
+        else:
+            # API key authentication (existing behavior)
+            if not api_key:
+                api_key = config.api_key
+
+            self.api_key = api_key
+            self.session = None  # Not used with API key auth
 
         # We are focusing on JSON for now.
-        if self.datatype == 'XML':
+        if self.datatype == "XML":
             raise NotImplemented("Returning XML is not currently supported.")
 
-        if self.datatype == 'JSON':
-            self.headers.update({'Accept': 'application/json'})
+        if self.datatype == "JSON":
+            self.headers.update({"Accept": "application/json"})
 
         # Report formats
         self.report_formats = {
-            'csv': 'text/csv',
-            'pdf': 'application/pdf',
-            'xls': 'application/vnd.ms-excel',
-            'xml': 'application/xml',
-            'json': 'application/json'
+            "csv": "text/csv",
+            "pdf": "application/pdf",
+            "xls": "application/vnd.ms-excel",
+            "xml": "application/xml",
+            "json": "application/json",
         }
 
         # Whether or not to verify user fields. Defaults to False.
-        self.verify_fields = kwargs.get('verify_fields', False)
+        self.verify_fields = kwargs.get("verify_fields", False)
 
         # These can be used as a reference for available fields, also used to validate
         # fields in get_employee and to grab all available data if no fields are passed in
@@ -110,61 +167,151 @@ class PyBambooHR(object):
         self.employee_fields = {
             "address1": ("text", "The employee's first address line"),
             "address2": ("text", "The employee's second address line"),
-            "age": ("integer", "The employee's age. Not editable. To change update dateOfBirth, instead."),
-            "bestEmail": ("email", "The employee's work email if set, otherwise their home email"),
-            "birthday": ("text", "The employee's month and day of birth. Not editable. To change update dateOfBirth, instead."),
+            "age": (
+                "integer",
+                "The employee's age. Not editable. To change update dateOfBirth, instead.",
+            ),
+            "bestEmail": (
+                "email",
+                "The employee's work email if set, otherwise their home email",
+            ),
+            "birthday": (
+                "text",
+                "The employee's month and day of birth. Not editable. To change update dateOfBirth, instead.",
+            ),
             "city": ("text", "The employee's city"),
             "country": ("country", "The employee's country"),
             "dateOfBirth": ("date", "The date the employee was born"),
             "department": ("list", "The employee's CURRENT department."),
             "division": ("list", "The employee's CURRENT division"),
-            "eeo": ("list", "The employee's EEO job category. These are defined by the U.S. Equal Employment Opportunity Commission"),
+            "eeo": (
+                "list",
+                "The employee's EEO job category. These are defined by the U.S. Equal Employment Opportunity Commission",
+            ),
             "employeeNumber": ("text", "Employee number (assigned by your company)"),
-            "employmentStatus": ("status", "DEPRECATED. Please use 'status' instead. The employee's employee status (Active,Inactive)"),
-            "employmentHistoryStatus": ("list", "The employee's CURRENT employment status. Options are customized by account."),
+            "employmentStatus": (
+                "status",
+                "DEPRECATED. Please use 'status' instead. The employee's employee status (Active,Inactive)",
+            ),
+            "employmentHistoryStatus": (
+                "list",
+                "The employee's CURRENT employment status. Options are customized by account.",
+            ),
             "ethnicity": ("list", "The employee's ethnicity"),
-            "exempt": ("list", "The FLSA employee exemption code (Exempt or Non-exempt)"),
+            "exempt": (
+                "list",
+                "The FLSA employee exemption code (Exempt or Non-exempt)",
+            ),
             "firstName": ("text", "The employee's first name"),
-            "flsaCode": ("list", "The employee's FLSA code. Ie: 'Exempt', 'Non-excempt'"),
-            "fullName1": ("text", "Employee's first and last name. Example: John Doe. Ready only."),
-            "fullName2": ("text", "Employee's last and first name. Example: Doe, John. Read only."),
-            "fullName3": ("text", "Employee's full name with nickname. Example: Doe, John Quentin (JDog). Read only."),
-            "fullName4": ("text", "employee's full name without nickname. Last name first. Example: Doe, John Quentin. Read only"),
-            "fullName5": ("text", "employee's full name without nickname. First name first. Example: John Quentin Doe. Read only"),
-            "displayName": ("text", "employee's name displayed in a format configured by the user. Read only"),
-            "gender": ("gender", "The employee's gender. Legal values are 'Male', 'Female'"),
+            "flsaCode": (
+                "list",
+                "The employee's FLSA code. Ie: 'Exempt', 'Non-excempt'",
+            ),
+            "fullName1": (
+                "text",
+                "Employee's first and last name. Example: John Doe. Ready only.",
+            ),
+            "fullName2": (
+                "text",
+                "Employee's last and first name. Example: Doe, John. Read only.",
+            ),
+            "fullName3": (
+                "text",
+                "Employee's full name with nickname. Example: Doe, John Quentin (JDog). Read only.",
+            ),
+            "fullName4": (
+                "text",
+                "employee's full name without nickname. Last name first. Example: Doe, John Quentin. Read only",
+            ),
+            "fullName5": (
+                "text",
+                "employee's full name without nickname. First name first. Example: John Quentin Doe. Read only",
+            ),
+            "displayName": (
+                "text",
+                "employee's name displayed in a format configured by the user. Read only",
+            ),
+            "gender": (
+                "gender",
+                "The employee's gender. Legal values are 'Male', 'Female'",
+            ),
             "hireDate": ("date", "The date the employee was hired"),
             "homeEmail": ("email", "The employee's home email address"),
             "homePhone": ("phone", "The employee's home phone number"),
-            "id": ("integer", "Employee id (automatically assigned by BambooHR). Not editable."),
-            "jobTitle": ("list", "The CURRENT value of the employee's job title, updating this field will create a new row in position history"),
-            "lastChanged": ("timestamp", "The date and time that the employee record was last changed"),
+            "id": (
+                "integer",
+                "Employee id (automatically assigned by BambooHR). Not editable.",
+            ),
+            "jobTitle": (
+                "list",
+                "The CURRENT value of the employee's job title, updating this field will create a new row in position history",
+            ),
+            "lastChanged": (
+                "timestamp",
+                "The date and time that the employee record was last changed",
+            ),
             "lastName": ("text", "The employee's last name"),
             "location": ("list", "The employee's CURRENT location"),
-            "maritalStatus": ("list", "The employee's marital status ('Single' or 'Married')"),
+            "maritalStatus": (
+                "list",
+                "The employee's marital status ('Single' or 'Married')",
+            ),
             "middleName": ("text", "The employee's middle name"),
             "mobilePhone": ("phone", "The employee's mobile phone number"),
             "nickname": ("text", "The employee's nickname"),
-            "payChangeReason": ("list", "The reason for the employee's last pay rate change."),
+            "payChangeReason": (
+                "list",
+                "The reason for the employee's last pay rate change.",
+            ),
             "payGroup": ("list", "The custom pay group that the employee belongs to."),
-            "payGroupId": ("integer", "The id value corresponding to the pay group that an employee belongs to"),
+            "payGroupId": (
+                "integer",
+                "The id value corresponding to the pay group that an employee belongs to",
+            ),
             "payRate": ("currency", "The employee's CURRENT pay rate. ie: $8.25"),
             "payRateEffectiveDate": ("date", "The date most recent change was made."),
-            "payType": ("pay_type", "The employee's CURRENT pay type. ie: 'hourly','salary','commission','exception hourly','monthly','piece rate','contract','daily'"),
+            "payType": (
+                "pay_type",
+                "The employee's CURRENT pay type. ie: 'hourly','salary','commission','exception hourly','monthly','piece rate','contract','daily'",
+            ),
             "preferredName": ("text", "The employee's preferred name."),
             "ssn": ("ssn", "The employee's social security number"),
             "sin": ("sin", "The employee's Canadian Social Insurance Number"),
             "state": ("state", "The employee's state/province"),
-            "stateCode": ("text", "The 2 character abbreviation for the employee's state (US only). Not editable."),
-            "status": ("status", "'status' indicates whether you are using BambooHR to track data about this employee. Valid values are 'Active', 'Inactive'."),
-            "supervisor": ("employee", "The emloyee’s CURRENT supervisor. Not editable."),
-            "supervisorId": ("integer", "The 'employeeNumber' of the employee's CURRENT supervisor. Not editable."),
-            "supervisorEId": ("integer", "The 'id' of the employee's CURRENT supervisor. Not editable."),
+            "stateCode": (
+                "text",
+                "The 2 character abbreviation for the employee's state (US only). Not editable.",
+            ),
+            "status": (
+                "status",
+                "'status' indicates whether you are using BambooHR to track data about this employee. Valid values are 'Active', 'Inactive'.",
+            ),
+            "supervisor": (
+                "employee",
+                "The emloyee’s CURRENT supervisor. Not editable.",
+            ),
+            "supervisorId": (
+                "integer",
+                "The 'employeeNumber' of the employee's CURRENT supervisor. Not editable.",
+            ),
+            "supervisorEId": (
+                "integer",
+                "The 'id' of the employee's CURRENT supervisor. Not editable.",
+            ),
             "terminationDate": ("date", "The date the employee was terminated"),
             "workEmail": ("email", "The employee's work email address"),
-            "workPhone": ("phone", "The employee's work phone number, without extension"),
-            "workPhonePlusExtension": ("text", "The employee's work phone and extension. Not editable."),
-            "workPhoneExtension": ("text", "The employees work phone extension (if any)"),
+            "workPhone": (
+                "phone",
+                "The employee's work phone number, without extension",
+            ),
+            "workPhonePlusExtension": (
+                "text",
+                "The employee's work phone and extension. Not editable.",
+            ),
+            "workPhoneExtension": (
+                "text",
+                "The employees work phone extension (if any)",
+            ),
             "zipcode": ("text", "The employee's zipcode"),
             "photoUploaded": ("bool", "The employee has uploaded a photo"),
             "isPhotoUploaded": ("bool", "The employee has uploaded a photo"),
@@ -190,18 +337,130 @@ class PyBambooHR(object):
         # dicctionary with employees data
         self.employees = {}
 
+    def _make_request(self, method, url, auto_refresh=True, **kwargs):
+        """
+        Unified HTTP request method that handles both API key and cookie authentication.
+
+        @param method: HTTP method ('GET', 'POST', etc.)
+        @param url: Full URL to request
+        @param auto_refresh: If True, prompt for new cookies on session expiration (default: True)
+        @param **kwargs: Additional arguments passed to requests (data, params, files, etc.)
+        @return: requests.Response object
+        @raises HTTPError: On HTTP errors (4xx, 5xx)
+        @raises CookieExpiredException: When cookies expire (401/403 with cookie auth)
+        """
+        from .cookie_auth import CookieExpiredException
+
+        # Add timeout to kwargs if not present
+        if "timeout" not in kwargs:
+            kwargs["timeout"] = self.timeout
+
+        # Handle headers - merge with default headers
+        request_headers = self.headers.copy()
+        if "headers" in kwargs:
+            request_headers.update(kwargs.pop("headers"))
+        kwargs["headers"] = request_headers
+
+        # Choose authentication method
+        if self.auth_method == "cookies":
+            # Use session with cookies
+            r = self.session.request(method, url, **kwargs)
+
+            # Check for cookie expiration (401 Unauthorized or 403 Forbidden)
+            if r.status_code in (401, 403):
+                if auto_refresh:
+                    # Prompt user for fresh cookies
+                    self._handle_cookie_expiration()
+                    # Retry the request with new cookies
+                    return self._make_request(method, url, auto_refresh=False, **kwargs)
+                else:
+                    raise CookieExpiredException(
+                        "Session cookies have expired. Please refresh cookies by calling "
+                        "refresh_cookies() or create a new PyBambooHR instance with fresh cookies."
+                    )
+        else:
+            # Use API key authentication (backward compatible)
+            kwargs["auth"] = (self.api_key, "")
+            r = requests.request(method, url, **kwargs)
+
+        # Raise on HTTP errors
+        r.raise_for_status()
+
+        return r
+
+    def _handle_cookie_expiration(self):
+        """
+        Prompt user for fresh cookies when session expires.
+        Called automatically when cookie expiration is detected.
+        """
+        from .cookie_auth import prompt_for_cookies
+
+        print("\n" + "=" * 60)
+        print("Cookies refreshed successfully!")
+        print("=" * 60 + "\n")
+
+        new_cookies = prompt_for_cookies()
+        self.refresh_cookies(cookies=new_cookies)
+
+    def refresh_cookies(self, cookies=None, cookie_file=None):
+        """
+        Refresh expired session cookies with new ones.
+
+        This method allows you to update cookies without creating a new instance.
+        Useful when cookies expire during long-running operations.
+
+        @param cookies: New browser cookies (string, dict, or JSON)
+        @param cookie_file: Path to file containing new cookies (optional)
+        @raises ValueError: If neither cookies nor cookie_file provided
+        @raises RuntimeError: If not using cookie authentication
+
+        Usage:
+            bamboo = PyBambooHR(subdomain='actian', auth_method='cookies', cookies='...')
+
+            # Later, when cookies expire:
+            bamboo.refresh_cookies(cookies='PHPSESSID=new_value; ...')
+
+            # Or prompt user:
+            new_cookies = input("Please paste fresh cookies: ")
+            bamboo.refresh_cookies(cookies=new_cookies)
+        """
+        from .cookie_auth import parse_cookies, create_session_from_cookies
+
+        if self.auth_method != "cookies":
+            raise RuntimeError(
+                "refresh_cookies() only works with auth_method='cookies'"
+            )
+
+        # Load from file if specified
+        if cookie_file:
+            try:
+                with open(cookie_file, "r") as f:
+                    cookies = f.read()
+            except IOError as e:
+                raise ValueError("Could not read cookie file: {}".format(e))
+
+        if not cookies:
+            raise ValueError("Either 'cookies' or 'cookie_file' parameter required")
+
+        # Parse and update session
+        try:
+            parsed_cookies = parse_cookies(cookies)
+            self.session = create_session_from_cookies(parsed_cookies, self.subdomain)
+        except Exception as e:
+            raise ValueError("Failed to parse cookies: {}".format(e))
+
     def _format_employee_xml(self, employee):
         """
         Utility method for turning an employee dictionary into valid employee xml.
 
         @param employee: Dictionary containing employee information.
         """
-        xml_fields = ''
+        xml_fields = ""
         for key in employee:
             if not self.employee_fields.get(key) and self.verify_fields:
                 raise UserWarning("You passed in an invalid field")
             else:
-                xml_fields += make_field_xml(key, employee[key], pre='\t', post='\n')
+                xml_fields += make_field_xml(key, employee[key], pre="\t", post="\n")
 
         # Really cheesy way to build XML... this should probably be replaced at some point.
         xml = "<employee>\n{}</employee>".format(xml_fields)
@@ -214,35 +473,37 @@ class PyBambooHR(object):
 
         @param employee: Dictionary containing row data information.
         """
-        xml_fields = ''
-        for k, v in row.iteritems():
-            xml_fields += make_field_xml(k, v, pre='\t', post='\n')
+        xml_fields = ""
+        for k, v in row.items():
+            xml_fields += make_field_xml(k, v, pre="\t", post="\n")
 
         xml = "<row>\n{}</row>".format(xml_fields)
         return xml
 
     def _format_report_xml(
-            self, fields, title='My Custom Report', report_format='pdf',
-            last_changed=None):
+        self, fields, title="My Custom Report", report_format="pdf", last_changed=None
+    ):
         """
         Utility method for turning an employee dictionary into valid employee xml.
 
         @param fields: List containing report fields.
         """
-        xml_fields = ''
+        xml_fields = ""
         for field in fields:
-            xml_fields += make_field_xml(field, None, pre='\t\t', post='\n')
+            xml_fields += make_field_xml(field, None, pre="\t\t", post="\n")
 
-        xml_filters = ''
+        xml_filters = ""
         if last_changed and isinstance(last_changed, datetime.datetime):
-            xml_filters = '''
+            xml_filters = """
                 <filters>
                     <lastChanged includeNull="no">%s</lastChanged>
                 </filters>
-            ''' % last_changed.strftime('%Y-%m-%dT%H:%M:%SZ')
+            """ % last_changed.strftime("%Y-%m-%dT%H:%M:%SZ")
 
         # Really cheesy way to build XML... this should probably be replaced at some point.
-        xml = '''<report output="{0}">\n\t<title>{1}</title>\n\t{2}<fields>\n{3}\t</fields>\n</report>'''.format(report_format, title, xml_filters, xml_fields)
+        xml = """<report output="{0}">\n\t<title>{1}</title>\n\t{2}<fields>\n{3}\t</fields>\n</report>""".format(
+            report_format, title, xml_filters, xml_fields
+        )
         return xml
 
     def add_employee(self, employee):
@@ -254,15 +515,17 @@ class PyBambooHR(object):
         @return: Dictionary contianing new employee URL and ID.
         """
         employee = utils.camelcase_keys(employee)
-        if not employee.get('firstName') or not employee.get('lastName'):
+        if not employee.get("firstName") or not employee.get("lastName"):
             raise UserWarning("The 'firstName' and 'lastName' keys are required.")
 
         xml = self._format_employee_xml(employee)
-        url = self.base_url + 'employees/'
-        r = requests.post(url, timeout=self.timeout, data=xml, headers=self.headers, auth=(self.api_key, ''))
-        r.raise_for_status()
+        url = self.base_url + "employees/"
+        r = self._make_request("POST", url, data=xml)
 
-        return {'url': r.headers['location'], 'id': r.headers['location'].replace(url, "")}
+        return {
+            "url": r.headers["location"],
+            "id": r.headers["location"].replace(url, ""),
+        }
 
     def update_employee(self, id, employee):
         """
@@ -275,9 +538,8 @@ class PyBambooHR(object):
         """
         employee = utils.camelcase_keys(employee)
         xml = self._format_employee_xml(employee)
-        url = self.base_url + 'employees/{0}'.format(id)
-        r = requests.post(url, timeout=self.timeout, data=xml, headers=self.headers, auth=(self.api_key, ''))
-        r.raise_for_status()
+        url = self.base_url + "employees/{0}".format(id)
+        r = self._make_request("POST", url, data=xml)
 
         return True
 
@@ -288,12 +550,11 @@ class PyBambooHR(object):
 
         @return: A list of employee dictionaries which is a list of employees in the directory.
         """
-        url = self.base_url + 'employees/directory'
-        r = requests.get(url, timeout=self.timeout, headers=self.headers, auth=(self.api_key, ''))
-        r.raise_for_status()
+        url = self.base_url + "employees/directory"
+        r = self._make_request("GET", url)
 
         data = r.json()
-        employees = data['employees']
+        employees = data["employees"]
         if self.underscore_keys:
             employees = [utils.underscore_keys(employee) for employee in employees]
 
@@ -310,11 +571,15 @@ class PyBambooHR(object):
         """
         get_fields = []
 
-        field_list = [utils.underscore_to_camelcase(field) for field in field_list] if field_list else None
+        field_list = (
+            [utils.underscore_to_camelcase(field) for field in field_list]
+            if field_list
+            else None
+        )
 
         if field_list:
             for f in field_list:
-                if not f.startswith('custom') and not self.employee_fields.get(f):
+                if not f.startswith("custom") and not self.employee_fields.get(f):
                     raise UserWarning("You passed in an invalid field")
                 else:
                     get_fields.append(f)
@@ -322,18 +587,13 @@ class PyBambooHR(object):
             for field in self.employee_fields:
                 get_fields.append(field)
 
-        payload = {
-            'fields': ",".join(get_fields)
-        }
+        payload = {"fields": ",".join(get_fields)}
 
         if self.only_current == False:
-            payload.update({
-                'onlyCurrent': 'false'
-            })
+            payload.update({"onlyCurrent": "false"})
 
         url = self.base_url + "employees/{0}".format(employee_id)
-        r = requests.get(url, timeout=self.timeout, headers=self.headers, params=payload, auth=(self.api_key, ''))
-        r.raise_for_status()
+        r = self._make_request("GET", url, params=payload)
 
         employee = r.json()
 
@@ -342,7 +602,9 @@ class PyBambooHR(object):
 
         return employee
 
-    def get_all_employees(self, field_list=None, disabledUsers=False, reloadEmployees=False):
+    def get_all_employees(
+        self, field_list=None, disabledUsers=False, reloadEmployees=False
+    ):
         """
         API method for returning a dictionary of employees.
 
@@ -357,23 +619,27 @@ class PyBambooHR(object):
             users = {}
             # get all employees (doesn't get whom don't have activity)
             for u in self.get_meta_users().values():
-                users[str(u['employeeId'])] = True if u['status']=='enabled' else False
+                users[str(u["employeeId"])] = (
+                    True if u["status"] == "enabled" else False
+                )
             # get all enabled employees (included whom don't have activity, but are enabled)
             for u in self.get_employee_directory():
-                users[u['id']] = True
+                users[u["id"]] = True
 
             # filter enabled/active employees
             if not disabledUsers:
-                users = {k:v for k,v in users.items() if v}
+                users = {k: v for k, v in users.items() if v}
 
             # get employees data according to field_list
-            for i,uKey in enumerate(users.keys()):
+            for i, uKey in enumerate(users.keys()):
                 if uKey not in self.employees.keys():
-                    self.employees[uKey] = self.get_employee(uKey, field_list=field_list)
+                    self.employees[uKey] = self.get_employee(
+                        uKey, field_list=field_list
+                    )
 
         return self.employees
 
-    def get_employee_photo(self, employee_id, photo_size='small'):
+    def get_employee_photo(self, employee_id, photo_size="small"):
         """
         API method to get photo data for an employee
 
@@ -385,10 +651,9 @@ class PyBambooHR(object):
         url = self.base_url + "employees/{0}/photo".format(employee_id)
         if photo_size:
             url = url + "/{}".format(photo_size)
-        r = requests.get(url, timeout=self.timeout, headers=self.headers, auth=(self.api_key, ''))
-        r.raise_for_status()
+        r = self._make_request("GET", url)
 
-        return r.content, r.headers.get('content-type', '')
+        return r.content, r.headers.get("content-type", "")
 
     def get_employee_files(self, employee_id):
         """
@@ -399,13 +664,14 @@ class PyBambooHR(object):
         """
 
         url = self.base_url + "employees/{0}/files/view/".format(employee_id)
-        r = requests.get(url, timeout=self.timeout, headers=self.headers, auth=(self.api_key, ''))
-        r.raise_for_status()
+        r = self._make_request("GET", url)
         data = utils.transform_table_data(r.content)
 
-        return data['employee']
+        return data["employee"]
 
-    def upload_employee_file(self, employee_id, file_path, category_id, share, override_file_name=None):
+    def upload_employee_file(
+        self, employee_id, file_path, category_id, share, override_file_name=None
+    ):
         """
         API method to upload a file for an employee
 
@@ -419,14 +685,15 @@ class PyBambooHR(object):
         file_name = override_file_name if override_file_name else basename(file_path)
 
         with open(file_path, "rb") as f:
-            params = {"file": f,
-                      "fileName": (None, file_name),
-                      "category": (None, str(category_id)),
-                      "share": (None, "yes" if share else "no")}
+            params = {
+                "file": f,
+                "fileName": (None, file_name),
+                "category": (None, str(category_id)),
+                "share": (None, "yes" if share else "no"),
+            }
 
             url = self.base_url + "employees/{0}/files/".format(employee_id)
-            r = requests.post(url, timeout=self.timeout, headers=self.headers, auth=(self.api_key, ''), files=params)
-            r.raise_for_status()
+            r = self._make_request("POST", url, files=params)
         return True
 
     def add_row(self, table_name, employee_id, row):
@@ -440,10 +707,10 @@ class PyBambooHR(object):
         """
         row = utils.camelcase_keys(row)
         xml = self._format_row_xml(row)
-        url = self.base_url + \
-            "employees/{0}/tables/{1}/".format(employee_id, table_name)
-        r = requests.post(url, timeout=self.timeout, data=xml, headers=self.headers, auth=(self.api_key, ''))
-        r.raise_for_status()
+        url = self.base_url + "employees/{0}/tables/{1}/".format(
+            employee_id, table_name
+        )
+        r = self._make_request("POST", url, data=xml)
 
         return True
 
@@ -459,14 +726,20 @@ class PyBambooHR(object):
         """
         row = utils.camelcase_keys(row)
         xml = self._format_row_xml(row)
-        url = self.base_url + \
-            "employees/{0}/tables/{1}/{2}/".format(employee_id, table_name, row_id)
-        r = requests.post(url, timeout=self.timeout, data=xml, headers=self.headers, auth=(self.api_key, ''))
-        r.raise_for_status()
+        url = self.base_url + "employees/{0}/tables/{1}/{2}/".format(
+            employee_id, table_name, row_id
+        )
+        r = self._make_request("POST", url, data=xml)
 
         return True
 
-    def request_company_report(self, report_id, report_format='json', output_filename=None, filter_duplicates=True):
+    def request_company_report(
+        self,
+        report_id,
+        report_format="json",
+        output_filename=None,
+        filter_duplicates=True,
+    ):
         """
         API method for returning a company report by report ID.
         http://www.bamboohr.com/api/documentation/employees.php#requestCompanyReport
@@ -481,17 +754,22 @@ class PyBambooHR(object):
         @return: A result in the format specified. (Will vary depending on format requested.)
         """
         if report_format not in self.report_formats:
-            raise UserWarning("You requested an invalid report type. Valid values are: {0}".format(','.join([k for k in self.report_formats])))
+            raise UserWarning(
+                "You requested an invalid report type. Valid values are: {0}".format(
+                    ",".join([k for k in self.report_formats])
+                )
+            )
 
-        filter_duplicates = 'yes' if filter_duplicates else 'no'
-        url = self.base_url + "reports/{0}?format={1}&fd={2}&onlyCurrent={3}".format(report_id, report_format, filter_duplicates, self.only_current)
-        r = requests.get(url, timeout=self.timeout, headers=self.headers, auth=(self.api_key, ''))
-        r.raise_for_status()
+        filter_duplicates = "yes" if filter_duplicates else "no"
+        url = self.base_url + "reports/{0}?format={1}&fd={2}&onlyCurrent={3}".format(
+            report_id, report_format, filter_duplicates, self.only_current
+        )
+        r = self._make_request("GET", url)
 
-        if report_format == 'json':
+        if report_format == "json":
             # return list/dict for json type
             result = r.json()
-        elif report_format in ('csv', 'xml'):
+        elif report_format in ("csv", "xml"):
             # return text for csv type
             result = r.text
         else:
@@ -499,7 +777,7 @@ class PyBambooHR(object):
             result = r
 
         if output_filename:
-            with open(output_filename, 'wb') as handle:
+            with open(output_filename, "wb") as handle:
                 for block in r.iter_content(1024):
                     if not block:
                         break
@@ -508,8 +786,13 @@ class PyBambooHR(object):
         return result
 
     def request_custom_report(
-            self, field_list, report_format='xls', title="My Custom Report",
-            output_filename=None, last_changed=None):
+        self,
+        field_list,
+        report_format="xls",
+        title="My Custom Report",
+        output_filename=None,
+        last_changed=None,
+    ):
         """
         API method for returning a custom report by field list.
         http://www.bamboohr.com/api/documentation/employees.php#requestCustomReport
@@ -523,13 +806,21 @@ class PyBambooHR(object):
         @return: A result in the format specified. (Will vary depending on format requested.)
         """
         if report_format not in self.report_formats:
-            raise UserWarning("You requested an invalid report type. Valid values are: {0}".format(','.join([k for k in self.report_formats])))
+            raise UserWarning(
+                "You requested an invalid report type. Valid values are: {0}".format(
+                    ",".join([k for k in self.report_formats])
+                )
+            )
 
         get_fields = []
-        field_list = [utils.underscore_to_camelcase(field) for field in field_list] if field_list else None
+        field_list = (
+            [utils.underscore_to_camelcase(field) for field in field_list]
+            if field_list
+            else None
+        )
         if field_list:
             for f in field_list:
-                if not f.startswith('custom') and not self.employee_fields.get(f):
+                if not f.startswith("custom") and not self.employee_fields.get(f):
                     raise UserWarning("You passed in an invalid field")
                 else:
                     get_fields.append(f)
@@ -538,16 +829,18 @@ class PyBambooHR(object):
                 get_fields.append(field)
 
         xml = self._format_report_xml(
-            get_fields, title=title, report_format=report_format,
-            last_changed=last_changed)
+            get_fields,
+            title=title,
+            report_format=report_format,
+            last_changed=last_changed,
+        )
         url = self.base_url + "reports/custom/?format={0}".format(report_format)
-        r = requests.post(url, timeout=self.timeout, data=xml, headers=self.headers, auth=(self.api_key, ''))
-        r.raise_for_status()
+        r = self._make_request("POST", url, data=xml)
 
-        if report_format == 'json':
+        if report_format == "json":
             # return list/dict for json type
             result = r.json()
-        elif report_format in ('csv', 'xml'):
+        elif report_format in ("csv", "xml"):
             # return text for csv type
             result = r.text
         else:
@@ -555,7 +848,7 @@ class PyBambooHR(object):
             result = r
 
         if output_filename:
-            with open(output_filename, 'wb') as handle:
+            with open(output_filename, "wb") as handle:
                 for block in r.iter_content(1024):
                     if not block:
                         break
@@ -563,7 +856,7 @@ class PyBambooHR(object):
 
         return result
 
-    def get_tabular_data(self, table_name, employee_id='all'):
+    def get_tabular_data(self, table_name, employee_id="all"):
         """
         API method to retrieve tabular data for an employee, or all employees if employee_id argument is 'all' (the default).
         See http://www.bamboohr.com/api/documentation/tables.php for a list of available tables.
@@ -571,13 +864,12 @@ class PyBambooHR(object):
         @return A dictionary with employee ID as key and a list of dictionaries, each dictionary showing
         the values of the table's fields for a particular date, which is stored by key 'date' in the dictionary.
         """
-        url = self.base_url + 'employees/{}/tables/{}'.format(employee_id, table_name)
-        r = requests.get(url, timeout=self.timeout, headers=self.headers, auth=(self.api_key, ''))
-        r.raise_for_status()
+        url = self.base_url + "employees/{}/tables/{}".format(employee_id, table_name)
+        r = self._make_request("GET", url)
 
         return utils.transform_tabular_data(r.content)
 
-    def get_employee_changed_table(self, table_name='jobInfo', since=None):
+    def get_employee_changed_table(self, table_name="jobInfo", since=None):
         """
         API method to retrieve tabular data for changed employee.
         See http://www.bamboohr.com/api/documentation/tables.php for a list of available tables.
@@ -586,10 +878,12 @@ class PyBambooHR(object):
         the values of the table's fields for a particular date, which is stored by key 'date' in the dictionary.
         """
         if not isinstance(since, datetime.datetime):
-            raise ValueError("Error: since argument must be a datetime.datetime instance")
+            raise ValueError(
+                "Error: since argument must be a datetime.datetime instance"
+            )
 
-        url = 'employees/changed/tables/{}'.format(table_name)
-        params = {'since': since.strftime('%Y-%m-%dT%H:%M:%SZ')}
+        url = "employees/changed/tables/{}".format(table_name)
+        params = {"since": since.strftime("%Y-%m-%dT%H:%M:%SZ")}
         return self._query(url, params)
 
     def get_employee_changes(self, since=None, _type=None):
@@ -600,15 +894,16 @@ class PyBambooHR(object):
         @return List of dictionaries, each with id, action, and lastChanged keys.
         """
         if not isinstance(since, datetime.datetime):
-            raise ValueError("Error: since argument must be a datetime.datetime instance")
+            raise ValueError(
+                "Error: since argument must be a datetime.datetime instance"
+            )
 
-        url = self.base_url + 'employees/changed/'
-        params = {'since': since.strftime('%Y-%m-%dT%H:%M:%SZ')}
+        url = self.base_url + "employees/changed/"
+        params = {"since": since.strftime("%Y-%m-%dT%H:%M:%SZ")}
         if _type:
-            params.update({'type': _type})
+            params.update({"type": _type})
 
-        r = requests.get(url, timeout=self.timeout, params=params, headers=self.headers, auth=(self.api_key, ''))
-        r.raise_for_status()
+        r = self._make_request("GET", url, params=params)
 
         return r.json()
 
@@ -616,34 +911,35 @@ class PyBambooHR(object):
         start_date = utils.resolve_date_argument(start_date)
         end_date = utils.resolve_date_argument(end_date)
 
-        url = self.base_url + 'time_off/whos_out'
+        url = self.base_url + "time_off/whos_out"
         params = {}
         if start_date:
-            params['start'] = start_date
+            params["start"] = start_date
         if end_date:
-            params['end'] = end_date
-        r = requests.get(url, timeout=self.timeout, params=params, headers=self.headers, auth=(self.api_key, ''))
-        r.raise_for_status()
+            params["end"] = end_date
+        r = self._make_request("GET", url, params=params)
         return r.json()
         # return utils.transform_whos_out(r.content)
 
-    def get_time_off_requests(self, start_date=None, end_date=None, status=None, type=None, employee_id=None):
+    def get_time_off_requests(
+        self, start_date=None, end_date=None, status=None, type=None, employee_id=None
+    ):
         start_date = utils.resolve_date_argument(start_date)
         end_date = utils.resolve_date_argument(end_date)
 
         params = {}
         if start_date:
-            params['start'] = start_date
+            params["start"] = start_date
         if end_date:
-            params['end'] = end_date
+            params["end"] = end_date
         if status:
-            params['status'] = status
+            params["status"] = status
         if type:
-            params['type'] = type
+            params["type"] = type
         if employee_id:
-            params['employeeId'] = employee_id
+            params["employeeId"] = employee_id
 
-        r = self._query('time_off/requests', params, raw=True)
+        r = self._query("time_off/requests", params, raw=True)
         return r.json()
         # return utils.transform_time_off(r.content)
 
@@ -657,8 +953,7 @@ class PyBambooHR(object):
         @return: list containing fields information
         """
         url = self.base_url + "meta/fields/"
-        r = requests.get(url, timeout=self.timeout, headers=self.headers, auth=(self.api_key, ''))
-        r.raise_for_status()
+        r = self._make_request("GET", url)
 
         return r.json()
 
@@ -673,10 +968,9 @@ class PyBambooHR(object):
         """
 
         url = self.base_url + "meta/tables/"
-        r = requests.get(url, timeout=self.timeout, auth=(self.api_key, ''))
-        r.raise_for_status()
+        r = self._make_request("GET", url)
         data = utils.transform_table_data(r.content)
-        self.meta_tables = data['tables']['table']
+        self.meta_tables = data["tables"]["table"]
 
         return self.meta_tables
 
@@ -691,8 +985,7 @@ class PyBambooHR(object):
         """
 
         url = self.base_url + "meta/lists/"
-        r = requests.get(url, timeout=self.timeout, headers=self.headers, auth=(self.api_key, ''))
-        r.raise_for_status()
+        r = self._make_request("GET", url)
 
         return r.json()
 
@@ -707,15 +1000,13 @@ class PyBambooHR(object):
         """
 
         url = self.base_url + "meta/users/"
-        r = requests.get(url, timeout=self.timeout, headers=self.headers, auth=(self.api_key, ''))
-        r.raise_for_status()
+        r = self._make_request("GET", url)
 
         return r.json()
 
     def _query(self, url, params, raw=False):
         url = self.base_url + url
-        r = requests.get(url, timeout=self.timeout, params=params, headers=self.headers, auth=(self.api_key, ''))
-        r.raise_for_status()
+        r = self._make_request("GET", url, params=params)
         if raw:
             return r
         else:
